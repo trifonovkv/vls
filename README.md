@@ -4,7 +4,7 @@ A simple script to display video files in the directory, preview, play and delet
 
 ## Installation
 Install dependecies:  
-[mkpreview]  
+[mkpreview](https://github.com/trifonovkv/mkpreview/)  
 
 `wget https://raw.githubusercontent.com/trifonovkv/vls/main/vls`   
 `chmod +x ./vls`

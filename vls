@@ -1,0 +1,127 @@
+#!/bin/sh
+
+
+if [ "$#" -eq 0 ]; then
+    echo 
+    echo "Usage: vls /path/to/{folder|video_file}"
+    echo 
+    exit 1
+fi
+
+
+mkthumbnail() {
+    of=$(printf $tmpdir/%04d.png $3)
+    name="$3) $(basename "$1")"
+    duration=$(ffprobe -i "$1" -show_entries format=duration -v quiet -of csv="p=0")
+    if [ -z "${duration}"  ]; then
+        return
+    fi 
+    
+    2>/dev/null ffmpeg -ss \
+        $(date -d@"$(echo "scale=0; $duration/2" | bc)" -u +%H:%M:%S) \
+        -i "$1" -frames:v 1 -filter:v 'yadif' "$of"
+    2>/dev/null convert "$of" -resize $2 -gravity southwest -splice 0x18 \
+        -annotate +0+5 "$name" "$of" 
+}
+
+
+operation_with_file() {
+    case $1 in
+        s)
+            mkpreview "${arr[$2]}" 
+            ;;
+        p)
+            1>/dev/null 2>/dev/null mplayer -title "$2" "${arr[$2]}" 
+            ;;
+        d)
+            gio trash "${arr[$2]}"
+            ;;
+        a)             
+            for i in "${!arr[@]}"; do 
+                1>/dev/null 2>/dev/null mplayer -title "$i" "${arr[$i]}" 
+            done
+            ;;
+        *)
+            echo Wrong operation: $1
+            ;;
+    esac
+}
+
+
+mime=$(file "$1" -b --mime-type)
+IFS=/ read var1 var2 <<< $mime
+if [ ! -f "$1" ] && [ ! -d "$1" ]; then
+    echo "$1 does not exist."
+    exit 1
+fi
+if [ $var2 == "directory" ]; then
+    tmpdir=/dev/shm/vls
+    mkdir $tmpdir
+    
+    index=1
+    for i in "$(readlink -f "$1")"/*; do
+        mime=$(file "$i" -b --mime-type)
+        IFS=/ read var1 var2 <<< $mime
+        if [ "$var2" == "directory" ]; then
+            echo $(basename "$i")
+        fi
+        if [ "$var1" != "video" ]; then
+            continue
+        fi
+        
+        arr[index]="$i"
+
+        mkthumbnail "$i" "320x200" "$index" &
+        (( index++ ))
+    done
+    
+    wait
+    
+    if find "$tmpdir" -mindepth 1 | read; then
+        montage -tile 3x -geometry +1+1 $tmpdir/*.png $tmpdir/output.png
+        display $tmpdir/output.png &
+    else
+        echo "In "$1" no video files found"
+        exit 1
+    fi
+        
+   
+    while :; do
+        echo "[s]how thumbnails for file [number]"
+        echo "[p]lay file [number]"
+        echo "[a]ll play"
+        echo "[d]elete file [number]"
+        echo "[q]uit"
+        read -ep "Enter a number of file and operation: " 
+        IFS=' ' read opr num <<< $REPLY
+        if [ $opr == 'q' ]; then
+            rm -rf $tmpdir/
+            2>/dev/null kill $(jobs -p)
+            exit 0
+        fi
+        echo Choosed "${arr[$num]}"
+        operation_with_file $opr $num &
+        echo
+    done
+    
+
+else if [ $var1 == "video"  ]; then
+        index=0
+        arr[$index]="$1"
+        while :; do
+            echo "[s]how thumbnails for file"
+            echo "[p]lay file"
+            echo "[d]elete file"
+            echo "[q]uit"
+            read -ep "Enter operation: " 
+            if [ $REPLY == 'q' ]; then
+                exit 0
+            fi
+            operation_with_file $REPLY $index
+            echo
+        done
+    else
+        echo "isn't directory or video file"
+        exit 1
+    fi
+fi
